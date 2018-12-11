@@ -1,0 +1,330 @@
+package wekaTest;
+//package wekaTest;
+
+import java.util.List;
+import java.util.Random;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
+import java.util.ArrayList;
+import java.util.Arrays;
+
+public class PrivacyProtection {
+	//一轮CLIFF+MORPH，返回IPR的值
+	public static double rawscheme(String sourcefilename,String destinationfilename,int binnum,double remainrate,double lowerborder,double upperborder,int[] querynum) throws Exception{
+		List<String> attributeset=getAttributeFromFile(sourcefilename);
+		List<List<Double>> dataset = loaddata(sourcefilename);
+		int[][] binindexofrawdataset = devideIntoBins(dataset,binnum);
+		double[][] power=calculatePower(dataset,binindexofrawdataset,binnum);
+		System.out.println(power[0].length);
+		prunRecord(dataset,power,remainrate);
+		int[] binindexofsensitiveattribute=new int[dataset.size()];
+		for(int i=0;i<dataset.size();i++)
+			binindexofsensitiveattribute[i]=binindexofrawdataset[i][0];
+		dataset=MORPH(dataset,lowerborder,upperborder);
+		writeData(destinationfilename,attributeset,dataset);
+		dataset = loaddata(destinationfilename);
+		int[][] binindexofdatasetafterprotection = devideIntoBins(dataset,binnum);
+		double IPR=calculateIPR(binindexofrawdataset,binindexofdatasetafterprotection,binindexofsensitiveattribute,querynum,binnum);
+		return IPR;
+		//return 0;
+	}
+	
+	//获取所有的属性值
+	private static List<String> getAttributeFromFile(String filename) throws Exception{
+		CSVFileUtil dataset = new CSVFileUtil(filename);
+		String attributeLine = dataset.readLine();
+		List<String> attribute = new ArrayList<String>();
+		attribute = CSVFileUtil.fromCSVLinetoArray(attributeLine);
+		return attribute;
+	}
+	
+	//加载数据，将数据放在二维列表中
+	private static List<List<Double>> loaddata(String filename) throws Exception{
+		CSVFileUtil trainset = new CSVFileUtil(filename);
+		String attributeLine = trainset.readLine();
+		List<String> attribute = new ArrayList<String>();
+		attribute = CSVFileUtil.fromCSVLinetoArray(attributeLine);
+		String line = new String();
+		List<List<Double>> dataset = new ArrayList<List<Double>>();
+		
+		List<String> recordread = new ArrayList<String>();
+		while(true) {
+			line = trainset.readLine();
+			if(line == null) break;
+			recordread = CSVFileUtil.fromCSVLinetoArray(line);
+			List<Double> record = new ArrayList<Double>();
+			for(int i=0;i<recordread.size();i++){
+				//if(attribute.get(i).equals("name") || attribute.get(i).equals("version") || attribute.get(i).equals("packagename"))
+					//continue;
+				if(attribute.get(i).equals("bug"))
+					if(recordread.get(i).equals("Y"))
+						record.add((double) 1);
+					else
+						record.add((double) 0);
+				else
+					record.add(Double.parseDouble(recordread.get(i)));
+			}
+			dataset.add(record);
+		}
+		
+		return dataset;
+	}
+	
+	//计算属性值所属的子区间，结果用序号表示
+	//第1段表示为0，第2段表示为1，……，第n段表示为n-1
+	private static int[][] devideIntoBins(List<List<Double>> dataset,int binnum) throws Exception{
+		double binborderindex;
+		int[][] binindex = new int[dataset.size()][dataset.get(0).size()-1];//binindex存放子区间序号
+		double[] attributevalue = new double[dataset.size()];//binindex存放某一属性所有的值（一列数据）
+		double[] binupborder = new double[binnum];//binupborder存放每一段区间的右端点值
+		for(int j=0;j<dataset.get(0).size()-1;j++){
+			//下面将第j列数据写入attributevalue中并进行排序
+			for(int i=0;i<dataset.size();i++)
+				attributevalue[i] = dataset.get(i).get(j);//将数据集中的值写入attributevalue
+			Arrays.sort(attributevalue);//对attributevalue中的所有值进行排序
+			//下面寻找区间端点值，第i段上限=attributevalue[数组元素个数/总段数*(i+1)-1]，i从0开始
+			for(int k=0;k<binnum-1;k++)
+			{
+				binborderindex=(dataset.size()+0.0)/binnum*(k+1)-1;
+				binupborder[k]=attributevalue[(int)binborderindex];//将排序后的attributevalue均匀分成10段，取出每一段最右边的值
+			}
+			binupborder[binnum-1]=attributevalue[dataset.size()-1];//由于上一行的语句中下标是向下取整，为了使最后一段的右端点是attributevalue中的最大值，此处单独计算
+			for(int i=0;i<dataset.size();i++){//此循环遍历所有的值，并根据已计算出的端点值将它们归类到不同的子区间
+				int k;
+				for(k=0;k<binnum;k++)
+					if(dataset.get(i).get(j)<=binupborder[k])
+						break;
+				binindex[i][j]=k;
+			}
+		}		
+		return binindex;
+	}
+	
+	//计算权重，要求class在List的最后一列
+	private static double[][] calculatePower(List<List<Double>> dataset,int[][] binindex,int binnum) throws Exception{
+		double[][] power = new double[dataset.size()][dataset.get(0).size()-1];//power存放所有数据的权重
+		int[][] bincount = new int[binnum][2];//第一列存放各区间的数据中class=0的数量，第二列存放各区间的数据中class=1的数量
+		double[][] binfrequency = new double[binnum][2];//binfrequency中所有数据的值都等于bincount中对应的值除以bincount中所有数据的和
+		for(int j=0;j<dataset.get(0).size()-1;j++){//此循环对数据集中的每一列数据分别进行计算
+			for(int k=0;k<binnum;k++){//此循环将bincount中所有的数据初始化为0，个人怀疑该循环应该放入下面关于j的循环中
+				bincount[k][0]=0;
+				bincount[k][1]=0;
+			}
+			//下面开始求bincount和binfrequency的值
+			for(int i=0;i<dataset.size();i++)
+				bincount[binindex[i][j]][dataset.get(i).get(dataset.get(0).size()-1).intValue()]++;
+			for(int k=0;k<binnum;k++){
+				binfrequency[k][0]=(double)bincount[k][0]/dataset.size();
+				binfrequency[k][1]=(double)bincount[k][1]/dataset.size();
+			}
+			//下面计算权重
+			for(int i=0;i<dataset.size();i++){//遍历一个属性中的所有数据
+				power[i][j]=binfrequency[binindex[i][j]][dataset.get(i).get(dataset.get(0).size()-1).intValue()];
+				power[i][j]*=power[i][j];
+				power[i][j]/=(binfrequency[binindex[i][j]][0]+binfrequency[binindex[i][j]][1]);
+			}
+		}
+		return power;
+	}
+	
+	//删除权重小的数据
+	private static void prunRecord(List<List<Double>> dataset,double[][] power,double remainrate) throws Exception{
+		//下面分别计算dataset中class=0和class=1的记录个数，以及所有权重的乘积
+		int sum=0;//sum存放class=1的记录个数
+		double[] powerproduct = new double[dataset.size()];//powerproduct存放每一个记录所有属性的权重的乘积
+		for(int i=0;i<dataset.size();i++){
+			sum+=dataset.get(i).get(dataset.get(0).size()-1).intValue();//将class属性中的所有值相加即可得到sum
+			powerproduct[i]=1;
+			for(int j=0;j<dataset.get(0).size()-1;j++)//此循环用于计算乘积
+				powerproduct[i]*=power[i][j];
+		}
+		//下面将class=0和class=1的记录分到不同的数组中
+		double[] powerproductclass1 = new double[sum];//powerproductclass1存放class=1的每一条记录所有属性的权重的乘积
+		double[] powerproductclass0 = new double[dataset.size()-sum];//powerproductclass1存放class=0的每一条记录所有属性的权重的乘积
+		int pointer1=0,pointer0=0;//pointer1和pointer0分别存放实际写入的乘积个数
+		for(int i=0;i<dataset.size();i++){//此循环对乘积进行归类存放
+			if(dataset.get(i).get(dataset.get(0).size()-1).intValue()==1)
+				powerproductclass1[pointer1++]=powerproduct[i];
+			else
+				powerproductclass0[pointer0++]=powerproduct[i];
+		}
+		//下面计算是否删除的临界值
+		Arrays.sort(powerproductclass1);//将乘积从小到大进行排序
+		Arrays.sort(powerproductclass0);
+		System.out.println(powerproductclass1.length);
+		System.out.println((int)((1-remainrate)*sum));
+		double thresholdclass1 = powerproductclass1[(int)((1-remainrate)*sum)];//计算删除记录的临界值
+		double thresholdclass0 = powerproductclass0[(int)((1-remainrate)*(dataset.size()-sum))];
+		//下面删除权重小于临界值的记录
+		for(int i=dataset.size()-1;i>=0;i--)
+			if(dataset.get(i).get(dataset.get(0).size()-1).intValue()==1){
+				if(powerproduct[i]<=thresholdclass1)
+					dataset.remove(i);
+			}
+			else{
+				if(powerproduct[i]<=thresholdclass0)
+					dataset.remove(i);
+			}
+	}
+	
+	//模糊化操作
+	private static List<List<Double>> MORPH(List<List<Double>> dataset,double lowerborder,double upperborder) throws Exception{
+		List<List<Double>> datasetafterMORPH=new ArrayList<List<Double>>();//datasetafterMORPH存放模糊化之后的结果
+		double mindistance,distance,randomwithsign,rate;//mindistance存放两条记录间的最小距离，randomwithsign在将0到1的随机数映射到规定范围时使用
+		int mindistanceindex,classcolindex=dataset.get(0).size()-1;//mindistanceindex存放与当前记录距离最近的记录的下标，classcolindex存放class属性所在列号
+		for(int i=0;i<dataset.size();i++){
+			//下面找出与第i条记录有不相同的class的值且与第i条记录距离最近的记录，将对应的下标保存在mindistanceindex中
+			int ianother=0;//ianother用于指示与i不同类的记录下标
+			for(;ianother<dataset.size();ianother++)//找到数据集中与class不同类的第一个元素停下
+				if(dataset.get(i).get(classcolindex)!=dataset.get(ianother).get(classcolindex))
+					break;
+			mindistance=PrivacyProtection.calculateDistance(dataset.get(i),dataset.get(ianother),classcolindex);//将当前记录与它class不同的第一个记录间的距离作为初始时的最短距离
+			mindistanceindex=ianother;
+			for(;ianother<dataset.size();ianother++)//找最短距离，优化mindistance和对应的mindistanceindex
+				if(dataset.get(i).get(classcolindex)!=dataset.get(ianother).get(classcolindex)){
+					distance=PrivacyProtection.calculateDistance(dataset.get(i),dataset.get(ianother),classcolindex);
+					if(distance<mindistance){
+						mindistance=distance;
+						mindistanceindex=ianother;
+					}
+				}
+			//计算模糊化之后的值并添加到datasetafterMORPH中
+			List<Double> recordafterMORPH=new ArrayList<Double>();//recordafterMORPH存放计算结果
+			recordafterMORPH.add(dataset.get(i).get(0));//将模糊化前的数据放入recordafterMORPH中作为初始值
+			for(int j=1;j<classcolindex;j++){
+				do
+					randomwithsign=java.lang.Math.random()-0.5;//randomwithsign为-0.5到0.5之间的随机数（不包括0，while循环用于过滤到0）
+				while(randomwithsign==0.0);
+				rate=(2*(upperborder-lowerborder)*java.lang.Math.abs(randomwithsign)+lowerborder)*java.lang.Math.signum(randomwithsign);//rate为-beta到-alpha或alpha到beta间的随机数
+				double valueafterMORPH=dataset.get(i).get(j)+(dataset.get(i).get(j)-dataset.get(mindistanceindex).get(j))*rate;//计算模糊化之后的值
+				recordafterMORPH.add(valueafterMORPH);//将计算结果写入recordafterMORPH中
+			}
+			recordafterMORPH.add(dataset.get(i).get(classcolindex));//写入class的值
+			datasetafterMORPH.add(recordafterMORPH);
+		}
+		return datasetafterMORPH;
+	}
+	
+	//计算两个记录间的欧氏距离，classcolnum为不参与运算的维度
+	private static double calculateDistance(List<Double> record1,List<Double> record2,int classcolindex) throws Exception{
+		double distance=0;
+		if(record1.size()!=record2.size())//处理两个向量维数不同的问题
+			throw new Exception("Two records don't have the same attributes!");
+		for(int i=0;i<record1.size();i++)
+			if(i!=classcolindex)
+				distance+=((record1.get(i)-record2.get(i))*(record1.get(i)-record2.get(i)));
+		distance=java.lang.Math.sqrt(distance);
+		return distance;
+	}
+	
+	//将记录写入文件
+	private static void writeData(String filename,List<String> attributeset,List<List<Double>> dataset) throws Exception{
+		File file=new File(filename);
+		FileOutputStream out=new FileOutputStream(file);
+		OutputStreamWriter osw=new OutputStreamWriter(out,"UTF8");
+		BufferedWriter bw=new BufferedWriter(osw);
+		String temp;
+		for(int j=0;j<attributeset.size();j++){
+			bw.write(attributeset.get(j));
+			if(j!=attributeset.size()-1)
+				bw.write(",");
+		}
+		bw.write("\n");
+		for(int i=0;i<dataset.size();i++){
+			ArrayList rowtowrite=new ArrayList();
+			for(int j=0;j<dataset.get(0).size();j++){
+				temp=dataset.get(i).get(j).toString();
+				if(j==dataset.get(0).size()-1){
+					if(temp.equals("1.0"))
+						rowtowrite.add("Y");
+					else
+						rowtowrite.add("N");
+				}
+				else
+					rowtowrite.add(temp);
+			}
+			String csvrowtowrite=CSVFileUtil.ListtoCSVLine(rowtowrite);
+			bw.write(csvrowtowrite+"\n");
+		}
+		bw.close();
+		osw.close();
+		out.close();
+	}
+	
+	//计算IPR的值，要求第0列存放敏感属性
+	private static double calculateIPR(int[][] binindexofrawdataset,int[][] binindexofdatasetafterprotection,int[] binindexofsensitiveattribute,int[] querynum,int binnum) throws Exception{
+		int sum=0,differentnum=0,protecteddataresult;//sum存放所有有效查询的次数，differentnum存放隐私保护前后查询结果不同的次数，protecteddataresult返回隐私保护后的查询结果
+		int[] rawdataresult=new int[2];//rawdataresult的第一个元素存放返回记录数，第二个元素存放这些记录中隐私属性出现最多的子区间
+		List<int[]> queryset=new ArrayList<int[]>();//queryset存放已经使用过的查询
+		for(int k=0;k<querynum.length;k++){
+			for(int m=0;m<querynum[k];m++){
+				int[] query=queryGenerator(binindexofrawdataset[0].length,k+1,binnum);//query的长度为属性个数，query的第i个元素代表该查询要求记录中第i个属性的值落在第i个子区间内
+				if(queryset.contains(query)){//如果生成的查询已出现过，则该轮循环作废
+					m--;//与该次循环中m++相抵消，使m的值不发生任何变化
+					continue;
+				}
+				rawdataresult=mostSensitiveIndex(binindexofrawdataset,binindexofsensitiveattribute,query,binnum);//计算原始数据集查询后返回的子区间编号
+				protecteddataresult=mostSensitiveIndex(binindexofdatasetafterprotection,binindexofsensitiveattribute,query,binnum)[1];//计算隐私保护后的数据集查询后返回的子区间编号
+				//System.out.println(rawdataresult[0]);
+				if(rawdataresult[0]<2){////如果原始数据集中返回的记录数小于两条，则该轮循环作废
+					m--;
+					continue;
+				}
+				sum++;
+				if(rawdataresult[1]!=protecteddataresult)//隐私保护前后查询结果不同时differentnum的值加1
+					differentnum++;
+			}
+		}
+		double IPR=(double)differentnum/sum;
+		return IPR;
+	}
+	
+	//随机查询生成器，要求第0列存放敏感属性，结果保存在长度为attributenum的数组中，-1表示对应属性没有限制
+	private static int[] queryGenerator(int attributenum,int querysize,int binnum) throws Exception{
+		int[] query=new int[attributenum];//query的长度为属性个数，query的第i个元素代表该查询要求记录中第i个属性的值落在第i个子区间内
+		//以下要做的工作是随机将query中的querysize（查询长度）个值随机定为某个子区间的编号，其他元素都赋值为-1
+		for(int i=0;i<attributenum;i++)
+			query[i]=-1;
+		int index;
+		Random r=new Random();
+		for(int i=0;i<querysize;i++){
+			do
+				index=r.nextInt(attributenum-1)+1;
+			while(query[index]!=-1);
+			query[index]=r.nextInt(binnum);
+		}
+		return query;
+	}
+	
+	//根据给定的查询要求进行查询，统计满足要求的记录个数和出现最多的敏感属性,用长度为2的数组保存这两个值,敏感属性为-1表示查询无结果
+	private static int[] mostSensitiveIndex(int[][] binindex,int binindexofsensitiveattribute[],int[] query,int binnum) throws Exception{
+		//recordnuminindex存放查询结果中敏感属性值在各个子区间中的记录数量
+		int[] recordnuminindex=new int[binnum];//recordnuminindex存放满足查询要求的记录中敏感属性落在每一个子区间上的记录个数
+		int[] result=new int[2];//result[0]存放满足要求的记录个数，result[1]存放出现敏感属性落入最多的子区间
+		result[0]=result[1]=0;
+		boolean flag;
+		for(int i=0;i<binindex.length;i++){//此循环遍历数据集中的每一条记录
+			flag=true;//记录是否满足查询要求的标志，初始为true，发现某个属性不满足查询要求时置为false
+			for(int j=1;j<binindex[0].length;j++)//遍历记录的所有属性，检查是否满足查询要求
+				if(query[j]!=-1)
+					if(binindex[i][j]!=query[j])
+						flag=false;
+			if(flag==false)
+				continue;
+			recordnuminindex[binindex[i][0]]++;
+			result[0]++;
+		}
+		//找出recordnuminindex最大元素对应的下标放入result[1]中
+		int maxvalue=0,k;
+		for(k=0;k<binnum;k++)
+			if(recordnuminindex[k]>maxvalue){
+				maxvalue=recordnuminindex[k];
+				result[1]=k;
+			}
+		if(result[0]==0)
+			result[1]=-1;
+		return result;
+	}
+}

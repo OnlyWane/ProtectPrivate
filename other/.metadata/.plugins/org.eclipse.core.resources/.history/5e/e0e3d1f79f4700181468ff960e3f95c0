@@ -1,0 +1,84 @@
+//package wekaTest;
+
+import java.io.File;
+
+import weka.classifiers.Evaluation;
+import weka.classifiers.bayes.NaiveBayes;
+import weka.classifiers.functions.MultilayerPerceptron;
+import weka.classifiers.functions.SMO;
+import weka.core.Instances;
+import weka.core.converters.CSVLoader;
+
+public class Prediction {
+	public static double[] NBprediction(String trainset,String testset) throws Exception{
+		CSVLoader nb = new CSVLoader();
+        File inputFile = new File(trainset);//读入训练文件
+        nb.setFile(inputFile);
+        Instances instancesTrain = nb.getDataSet(); // 得到格式化的训练数据
+        instancesTrain.setClassIndex(instancesTrain.numAttributes()-1);//设置分类属性所在行号（第一行为0号），instancesTrain.numAttributes()可以取得属性总数
+        inputFile = new File(testset);//读入测试文件
+		nb.setFile(inputFile);         
+		Instances instancesTest = nb.getDataSet(); // 得到格式化的测试数据
+		instancesTest.setClassIndex(instancesTest.numAttributes() - 1); //设置分类属性所在行号（第一行为0号），instancesTest.numAttributes()可以取得属性总数
+		NaiveBayes m_classifier = new NaiveBayes();//用以建立一个naive bayes分类器
+		String options[]=new String[1];//训练参数数组
+		options[0]="-K";//Use a kernel estimator for numeric attributes rather than a normal distribution.
+		m_classifier.setOptions(options);//设置训练参数
+		m_classifier.buildClassifier(instancesTrain); //训练         
+		Evaluation eval = new Evaluation(instancesTrain); //构造评价器
+		eval.evaluateModel(m_classifier, instancesTest);//用测试数据集来评价m_classifier
+		//System.out.println(eval.toSummaryString("=== Summary ===\n",false));  //输出信息
+		//System.out.println(eval.toMatrixString("=== Confusion Matrix ===\n"));//Confusion Matrix
+		double g_measure = 2*eval.truePositiveRate(0)*(1-eval.falsePositiveRate(0))/(eval.truePositiveRate(0)+(1-eval.falsePositiveRate(0)));
+		double AUC=eval.areaUnderROC(0);
+		//System.out.println(g_measure+"\t");
+		double[] result={g_measure,AUC};
+		return result;
+	}
+	public static double[] SVMprediction(String trainset,String testset) throws Exception{
+		CSVLoader csv = new CSVLoader();
+        File inputFile = new File(trainset);//读入训练文件
+        csv.setFile(inputFile);
+        Instances instancesTrain = csv.getDataSet(); // 得到格式化的训练数据
+        instancesTrain.setClassIndex(instancesTrain.numAttributes()-1);//设置分类属性所在行号（第一行为0号），instancesTrain.numAttributes()可以取得属性总数
+        inputFile = new File(testset);//读入测试文件
+		csv.setFile(inputFile);         
+		Instances instancesTest = csv.getDataSet(); // 得到格式化的测试数据
+		instancesTest.setClassIndex(instancesTest.numAttributes() - 1); //设置分类属性所在行号（第一行为0号），instancesTest.numAttributes()可以取得属性总数
+		SMO smo = new SMO();//用以建立一个naive bayes分类器
+		//String options[]=new String[1];//训练参数数组
+		//options[0]="-K";//Use a kernel estimator for numeric attributes rather than a normal distribution.
+		//smo.setOptions(options);//设置训练参数
+		smo.buildClassifier(instancesTrain); //训练         
+		Evaluation eval = new Evaluation(instancesTrain); //构造评价器
+		eval.evaluateModel(smo, instancesTest);//用测试数据集来评价m_classifier
+		double g_measure = 2*eval.truePositiveRate(0)*(1-eval.falsePositiveRate(0))/(eval.truePositiveRate(0)+(1-eval.falsePositiveRate(0)));
+		double AUC=eval.areaUnderROC(0);
+		//System.out.println(g_measure+"\t");
+		double[] result={g_measure,AUC};
+		return result;
+	}
+	public static double[] NNprediction(String trainset,String testset) throws Exception{
+		CSVLoader csv = new CSVLoader();
+        File inputFile = new File(trainset);//读入训练文件
+        csv.setFile(inputFile);
+        Instances instancesTrain = csv.getDataSet(); // 得到格式化的训练数据
+        instancesTrain.setClassIndex(instancesTrain.numAttributes()-1);//设置分类属性所在行号（第一行为0号），instancesTrain.numAttributes()可以取得属性总数
+        inputFile = new File(testset);//读入测试文件
+		csv.setFile(inputFile);         
+		Instances instancesTest = csv.getDataSet(); // 得到格式化的测试数据
+		instancesTest.setClassIndex(instancesTest.numAttributes() - 1); //设置分类属性所在行号（第一行为0号），instancesTest.numAttributes()可以取得属性总数
+		MultilayerPerceptron smo = new MultilayerPerceptron();//用以建立一个naive bayes分类器
+		//String options[]=new String[1];//训练参数数组
+		//options[0]="-K";//Use a kernel estimator for numeric attributes rather than a normal distribution.
+		//smo.setOptions(options);//设置训练参数
+		smo.buildClassifier(instancesTrain); //训练         
+		Evaluation eval = new Evaluation(instancesTrain); //构造评价器
+		eval.evaluateModel(smo, instancesTest);//用测试数据集来评价m_classifier
+		double g_measure = 2*eval.truePositiveRate(0)*(1-eval.falsePositiveRate(0))/(eval.truePositiveRate(0)+(1-eval.falsePositiveRate(0)));
+		double AUC=eval.areaUnderROC(0);
+		//System.out.println(g_measure+"\t");
+		double[] result={g_measure,AUC};
+		return result;
+	}
+}

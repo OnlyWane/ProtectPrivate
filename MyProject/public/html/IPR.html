@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>IPR变化趋势</title>
+	<meta charset="utf-8">
+	<link rel="stylesheet" type="text/css" href="../stylesheets/style.css">
+    <script src="../javascripts/echarts.min.js"></script>
+</head>
+<body>
+	<div class="title-box">
+		<p>IPR变化过程</p>
+	</div>
+	<div class="option-box">
+		<div id="IPR-lines" style="width: 1000px;height: 600px;margin: 100px auto;"></div>
+	</div>
+</body>
+
+<script>
+	// function sendCompany() {
+	//     let comany = localStorage.getItem('comany_name');
+	//     return comany;
+	//     // body...
+	// }
+	function getData05(argument) {
+	    // body...	
+		let fileName = localStorage.getItem('comany_name') + '_IPR';
+		// let page = 1;
+		// 发起请求
+		// POST请求
+	    var req = new XMLHttpRequest();
+	    // OPEN
+	    req.open('POST', '/hello_jk/read_ipr');
+		// req.open('POST', '/user/create_user');
+	    // 设置请求头部信息
+	    req.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+	    // 指定服务端返回的数据类型
+	    req.responseType = 'json';
+	    // 发起请求
+	    req.send('fileName=' + fileName);
+	    // 添加监听事件
+	    req.onload = function (e) {
+	    	if (this.status === 200) {
+	        	// 获取服务端返回的数据
+	        	// console.log(this, "9999");
+		        if (this.response.code === 200) {
+		    		console.log(this.response, "000000");
+		    		var IPRdata = this.response.data;
+		    		drawLine(IPRdata);         
+		    	} else {
+		    		console.log(this.response.code, 'error');
+		    	}
+		    } else {
+		    	alert('网络错误');
+		    	// AddSpan("div_span", "网络错误");
+			}
+		}
+	}
+	getData05();
+	function drawLine(data) {
+		// body...
+
+	    var lineOption = {
+		    xAxis: {
+		        type: 'category',
+		        data: ['1', '2', '3', '4', '5', '6', '7','8'],
+		        axisLine: {
+		            lineStyle: {
+		                color: '#ffffff'
+		            }
+		        }
+		    },
+		    yAxis: {
+		        type: 'value',
+		        axisLine: {
+		            lineStyle: {
+		                color: '#ffffff'
+		            }
+		        }
+		    },
+		    series: [{
+		        data: data,
+		        type: 'line'
+		    }]
+		};
+		var line = echarts.init(document.getElementById('IPR-lines'));
+		line.setOption(lineOption);
+	}
+</script>
+</html>
